@@ -52,11 +52,16 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 
 	if node.MergedGateway == nil {
 		log.Debuga("buildGatewayListeners: no gateways for router ", node.ID)
+		log.Infof("[omega] buildGatewayListeners: no gateways for router %v", node.ID)
+		log.Infof("[omega] buildGatewayListeners: no gateways for router %#v", node.ID)
 		return builder
 	}
 
 	mergedGateway := node.MergedGateway
 	log.Debugf("buildGatewayListeners: gateways after merging: %v", mergedGateway)
+	log.Infof("[omega] buildGatewayListeners: gateways after merging: %v", mergedGateway)
+	log.Infof("[omega] buildGatewayListeners: gateways after merging: %#v", mergedGateway)
+	log.Infof("\n\n--\n[omega] servers after merging: %v\n--\n\n", mergedGateway.Servers)
 
 	actualWildcard, _ := getActualWildcardAndLocalHost(node)
 	errs := &multierror.Error{}
@@ -72,23 +77,25 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 			bindToPort: true,
 		}
 
-		p := protocol.Parse(servers[0].Port.Protocol)
-		listenerProtocol := plugin.ModelProtocolToListenerProtocol(node, p, core.TrafficDirection_OUTBOUND)
-		if p.IsHTTP() {
-			// We have a list of HTTP servers on this port. Build a single listener for the server port.
-			// We only need to look at the first server in the list as the merge logic
-			// ensures that all servers are of same type.
-			routeName := mergedGateway.RouteNamesByServer[servers[0]]
-			opts.filterChainOpts = []*filterChainOpts{configgen.createGatewayHTTPFilterChainOpts(node, servers[0], routeName, "")}
-		} else {
-			// build http connection manager with TLS context, for HTTPS servers using simple/mutual TLS
-			// build listener with tcp proxy, with or without TLS context, for TCP servers
-			//   or TLS servers using simple/mutual/passthrough TLS
-			//   or HTTPS servers using passthrough TLS
-			// This process typically yields multiple filter chain matches (with SNI) [if TLS is used]
+		for _, server := range servers {
+			log.Infof("[omega] processing server: %v\n", server)
+			log.Infof("[omega] processing server: %#v\n", server)
 			filterChainOpts := make([]*filterChainOpts, 0)
+			p := protocol.Parse(server.Port.Protocol)
+			listenerProtocol := plugin.ModelProtocolToListenerProtocol(node, p, core.TrafficDirection_OUTBOUND)
+			if p.IsHTTP() {
+				// We have a list of HTTP servers on this port. Build a single listener for the server port.
+				// We only need to look at the first server in the list as the merge logic
+				// ensures that all servers are of same type.
+				routeName := mergedGateway.RouteNamesByServer[server]
+				filterChainOpts = append(filterChainOpts, configgen.createGatewayHTTPFilterChainOpts(node, server, routeName, ""))
+			} else {
+				// build http connection manager with TLS context, for HTTPS servers using simple/mutual TLS
+				// build listener with tcp proxy, with or without TLS context, for TCP servers
+				//   or TLS servers using simple/mutual/passthrough TLS
+				//   or HTTPS servers using passthrough TLS
+				// This process typically yields multiple filter chain matches (with SNI) [if TLS is used]
 
-			for _, server := range servers {
 				if gateway.IsTLSServer(server) && gateway.IsHTTPServer(server) {
 					// This is a HTTPS server, where we are doing TLS termination. Build a http connection manager with TLS context
 					routeName := mergedGateway.RouteNamesByServer[server]
@@ -100,87 +107,87 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 				}
 			}
 			opts.filterChainOpts = filterChainOpts
-		}
 
-		l := buildListener(opts)
-		l.TrafficDirection = core.TrafficDirection_OUTBOUND
+			l := buildListener(opts)
+			l.TrafficDirection = core.TrafficDirection_OUTBOUND
 
-		mutable := &plugin.MutableObjects{
-			Listener: l,
-			// Note: buildListener creates filter chains but does not populate the filters in the chain; that's what
-			// this is for.
-			FilterChains: make([]plugin.FilterChain, len(l.FilterChains)),
-		}
-
-		// Begin shady logic
-		// buildListener builds an empty array of filters in the listener struct
-		// mutable object above has a FilterChains field that has same number of empty structs (matching number of
-		// filter chains). All plugins iterate over this array, and fill up the HTTP or TCP part of the
-		// plugin.FilterChain struct.
-		// TODO: need a cleaner way of communicating this info
-		for i := range mutable.FilterChains {
-			if opts.filterChainOpts[i].httpOpts != nil {
-				mutable.FilterChains[i].ListenerProtocol = plugin.ListenerProtocolHTTP
-			} else {
-				mutable.FilterChains[i].ListenerProtocol = plugin.ListenerProtocolTCP
+			mutable := &plugin.MutableObjects{
+				Listener: l,
+				// Note: buildListener creates filter chains but does not populate the filters in the chain; that's what
+				// this is for.
+				FilterChains: make([]plugin.FilterChain, len(l.FilterChains)),
 			}
-		}
-		// end shady logic
 
-		var si *model.ServiceInstance
-		serviceInstances := make([]*model.ServiceInstance, 0, len(node.ServiceInstances))
-		for _, w := range node.ServiceInstances {
-			if w.Endpoint.Port == int(portNumber) {
-				if si == nil {
-					si = w
+			// Begin shady logic
+			// buildListener builds an empty array of filters in the listener struct
+			// mutable object above has a FilterChains field that has same number of empty structs (matching number of
+			// filter chains). All plugins iterate over this array, and fill up the HTTP or TCP part of the
+			// plugin.FilterChain struct.
+			// TODO: need a cleaner way of communicating this info
+			for i := range mutable.FilterChains {
+				if opts.filterChainOpts[i].httpOpts != nil {
+					mutable.FilterChains[i].ListenerProtocol = plugin.ListenerProtocolHTTP
+				} else {
+					mutable.FilterChains[i].ListenerProtocol = plugin.ListenerProtocolTCP
 				}
-				serviceInstances = append(serviceInstances, w)
 			}
-		}
-		if len(serviceInstances) != 1 {
-			names := make([]host.Name, 0, len(serviceInstances))
-			for _, s := range serviceInstances {
-				names = append(names, s.Service.Hostname)
+			// end shady logic
+
+			var si *model.ServiceInstance
+			serviceInstances := make([]*model.ServiceInstance, 0, len(node.ServiceInstances))
+			for _, w := range node.ServiceInstances {
+				if w.Endpoint.Port == int(portNumber) {
+					if si == nil {
+						si = w
+					}
+					serviceInstances = append(serviceInstances, w)
+				}
 			}
-			log.Warnf("buildGatewayListeners: found %d services on port %d: %v",
-				len(serviceInstances), portNumber, names)
-		}
-
-		pluginParams := &plugin.InputParams{
-			ListenerProtocol:           listenerProtocol,
-			DeprecatedListenerCategory: networking.EnvoyFilter_DeprecatedListenerMatch_GATEWAY,
-			Env:                        env,
-			Node:                       node,
-			Push:                       push,
-			ServiceInstance:            si,
-			Port: &model.Port{
-				Name:     servers[0].Port.Name,
-				Port:     int(portNumber),
-				Protocol: p,
-			},
-		}
-		for _, p := range configgen.Plugins {
-			if err := p.OnOutboundListener(pluginParams, mutable); err != nil {
-				log.Warna("buildGatewayListeners: failed to build listener for gateway: ", err.Error())
+			if len(serviceInstances) != 1 {
+				names := make([]host.Name, 0, len(serviceInstances))
+				for _, s := range serviceInstances {
+					names = append(names, s.Service.Hostname)
+				}
+				log.Warnf("buildGatewayListeners: found %d services on port %d: %v",
+					len(serviceInstances), portNumber, names)
 			}
-		}
 
-		// Filters are serialized one time into an opaque struct once we have the complete list.
-		if err := buildCompleteFilterChain(pluginParams, mutable, opts); err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("gateway omitting listener %q due to: %v", mutable.Listener.Name, err.Error()))
-			continue
-		}
+			pluginParams := &plugin.InputParams{
+				ListenerProtocol:           listenerProtocol,
+				DeprecatedListenerCategory: networking.EnvoyFilter_DeprecatedListenerMatch_GATEWAY,
+				Env:                        env,
+				Node:                       node,
+				Push:                       push,
+				ServiceInstance:            si,
+				Port: &model.Port{
+					Name:     server.Port.Name,
+					Port:     int(portNumber),
+					Protocol: p,
+				},
+			}
+			for _, p := range configgen.Plugins {
+				if err := p.OnOutboundListener(pluginParams, mutable); err != nil {
+					log.Warna("buildGatewayListeners: failed to build listener for gateway: ", err.Error())
+				}
+			}
 
-		if err := mutable.Listener.Validate(); err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("gateway listener %s validation failed: %v", mutable.Listener.Name, err.Error()))
-			continue
-		}
+			// Filters are serialized one time into an opaque struct once we have the complete list.
+			if err := buildCompleteFilterChain(pluginParams, mutable, opts); err != nil {
+				errs = multierror.Append(errs, fmt.Errorf("gateway omitting listener %q due to: %v", mutable.Listener.Name, err.Error()))
+				continue
+			}
 
-		if log.DebugEnabled() {
-			log.Debugf("buildGatewayListeners: constructed listener with %d filter chains:\n%v",
-				len(mutable.Listener.FilterChains), mutable.Listener)
+			if err := mutable.Listener.Validate(); err != nil {
+				errs = multierror.Append(errs, fmt.Errorf("gateway listener %s validation failed: %v", mutable.Listener.Name, err.Error()))
+				continue
+			}
+
+			if log.DebugEnabled() {
+				log.Debugf("buildGatewayListeners: constructed listener with %d filter chains:\n%v",
+					len(mutable.Listener.FilterChains), mutable.Listener)
+			}
+			listeners = append(listeners, mutable.Listener)
 		}
-		listeners = append(listeners, mutable.Listener)
 	}
 	// We'll try to return any listeners we successfully marshaled; if we have none, we'll emit the error we built up
 	err := errs.ErrorOrNil()

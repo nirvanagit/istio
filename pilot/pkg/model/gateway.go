@@ -82,6 +82,7 @@ func MergeGateways(gateways ...Config) *MergedGateway {
 	tlsHostsByPort := map[uint32]map[string]struct{}{} // port -> host -> exists
 
 	log.Debugf("MergeGateways: merging %d gateways", len(gateways))
+	log.Info("[omega] merging gateways")
 	for _, gatewayConfig := range gateways {
 		gatewayName := fmt.Sprintf("%s/%s", gatewayConfig.Namespace, gatewayConfig.Name)
 		names[gatewayName] = true
@@ -107,6 +108,7 @@ func MergeGateways(gateways ...Config) *MergedGateway {
 					continue
 				}
 			}
+			log.Infof("[omega] value of gatewayPorts: %v\n", gatewayPorts)
 			if gatewayPorts[s.Port.Number] {
 				// We have two servers on the same port. Should we merge?
 				// 1. Yes if both servers are plain text and HTTP
@@ -115,9 +117,16 @@ func MergeGateways(gateways ...Config) *MergedGateway {
 				//    for each server (as each server ends up as a separate http connection manager due to filter chain match
 				// 3. No for everything else.
 
-				if server, exists := plaintextServers[s.Port.Number]; exists {
+				// TODO: [aaeron/omega] - this is where we need the change
+				log.Infof("protocol: %s, port name: %s, port number: %d", s.Port.Protocol, s.Port.Name, s.Port.Number)
+				server, exists := plaintextServers[s.Port.Number]
+				if exists && s.Port.Protocol == "http" {
+					log.Infof("[omega] there is an existing plain text server on %d called: %v", s.Port.Number, server)
 					currentProto := protocol.Parse(server[0].Port.Protocol)
+					log.Infof("[omega] currentProto on port %v. protocol in server currently being index: %v (%s)", currentProto, p, s.Port.Name)
 					if currentProto != p || !p.IsHTTP() {
+						log.Infof("[omega] skipping server on gateway %s port %s.%d.%s: conflict with existing server %s.%d.%s",
+							gatewayConfig.Name, s.Port.Name, s.Port.Number, s.Port.Protocol, server[0].Port.Name, server[0].Port.Number, server[0].Port.Protocol)
 						log.Debugf("skipping server on gateway %s port %s.%d.%s: conflict with existing server %s.%d.%s",
 							gatewayConfig.Name, s.Port.Name, s.Port.Number, s.Port.Protocol, server[0].Port.Name, server[0].Port.Number, server[0].Port.Protocol)
 						recordRejectedConfig(gatewayName)
@@ -186,12 +195,19 @@ func MergeGateways(gateways ...Config) *MergedGateway {
 		}
 	}
 
+	log.Infof("[omega] plain text servers: %v", plaintextServers)
+	log.Infof("[omega] tls servers: %v", tlsServers)
 	// Concatenate both sets of servers
 	for p, v := range tlsServers {
 		servers[p] = v
 	}
 	for p, v := range plaintextServers {
-		servers[p] = v
+		if servers[p] != nil {
+			log.Infof("it already has an entry for port: %s", p)
+			servers[p] = append(servers[p], v...)
+		} else {
+			servers[p] = v
+		}
 	}
 
 	return &MergedGateway{
