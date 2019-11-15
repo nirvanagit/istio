@@ -76,3 +76,42 @@ func Test_TerminationDrainDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestEnableMultiProtocolListener(t *testing.T) {
+	tests := []struct {
+		name      string
+		setEnvVar bool
+		envVar    string
+		want     bool
+	}{
+		{
+			name:      "Returns true when environment variable is set to true",
+			setEnvVar: true,
+			envVar:    "true",
+			want:     true,
+		},
+		{
+			name:      "Returns false when environment variable is not set at all",
+			setEnvVar: false,
+			want:      false,
+		},
+		{
+			name:      "Returns false when environment variable is set to false",
+			setEnvVar: true,
+			envVar:    "false",
+			want:      false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnvVar {
+				os.Setenv("PILOT_ENABLE_MULTI_PROTOCOL_LISTENER", tt.envVar)
+			} else {
+				os.Unsetenv("PILOT_ENABLE_MULTI_PROTOCOL_LISTENER")
+			}
+			if got := EnableMultiProtocolListener; got != tt.want {
+				t.Errorf("TerminationDrainDuration() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

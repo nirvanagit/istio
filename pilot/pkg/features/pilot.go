@@ -223,6 +223,13 @@ var (
 			"outbound listener for each pod in a headless service. This feature should be disabled "+
 			"if headless services have a large number of pods. ",
 	)
+
+	// EnableMultiProtocolListener provides an option to configure a listener with http and SNI PASSTHROUGH filterchain
+	EnableMultiProtocolListener = env.RegisterBoolVar(
+		"PILOT_ENABLE_MULTI_PROTOCOL_LISTENER",
+		false,
+		"If enabled, this allows an HTTP and SNI PASSTHROUGH filterchain on the same port",
+	).Get()
 )
 
 var (

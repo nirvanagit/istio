@@ -112,6 +112,8 @@ spec:
             value: "{{ .Values.enableProtocolSniffingForOutbound }}"
           - name: PILOT_ENABLE_PROTOCOL_SNIFFING_FOR_INBOUND
             value: "{{ .Values.enableProtocolSniffingForInbound }}"
+          - name: PILOT_ENABLE_MULTI_PROTOCOL_LISTENER
+            value: "{{ .Values.enableMultiProtocolListener }}"
           resources:
 {{- if .Values.resources }}
 {{ toYaml .Values.resources | indent 12 }}
