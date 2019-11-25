@@ -109,21 +109,11 @@ func MergeGateways(gateways ...Config) *MergedGateway {
 			}
 			if gatewayPorts[s.Port.Number] {
 				// We have two servers on the same port. Should we merge?
-				// 1. Yes if both servers are plain text and HTTP
-				// 2. Yes if both servers are using TLS
+				// 1. Yes
 				//    if using HTTPS ensure that port name is distinct so that we can setup separate RDS
 				//    for each server (as each server ends up as a separate http connection manager due to filter chain match
-				// 3. No for everything else.
-
-				server, exists := plaintextServers[s.Port.Number]
-				if exists && s.Port.Protocol == "http" {
-					currentProto := protocol.Parse(server[0].Port.Protocol)
-					if currentProto != p || !p.IsHTTP() {
-						log.Debugf("skipping server on gateway %s port %s.%d.%s: conflict with existing server %s.%d.%s",
-							gatewayConfig.Name, s.Port.Name, s.Port.Number, s.Port.Protocol, server[0].Port.Name, server[0].Port.Number, server[0].Port.Protocol)
-						recordRejectedConfig(gatewayName)
-						continue
-					}
+				_, exists := plaintextServers[s.Port.Number]
+				if exists && p.IsHTTP() {
 					routeName := gatewayRDSRouteName(s, gatewayConfig)
 					if routeName == "" {
 						log.Debugf("skipping server on gateway %s port %s.%d.%s: could not build RDS name from server",

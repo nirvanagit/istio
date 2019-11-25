@@ -229,7 +229,7 @@ var (
 		"PILOT_ENABLE_MULTI_PROTOCOL_LISTENER",
 		false,
 		"If enabled, this allows an HTTP and SNI PASSTHROUGH filterchain on the same port",
-	).Get()
+	)
 )
 
 var (

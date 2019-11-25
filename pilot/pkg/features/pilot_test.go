@@ -109,7 +109,7 @@ func TestEnableMultiProtocolListener(t *testing.T) {
 			} else {
 				os.Unsetenv("PILOT_ENABLE_MULTI_PROTOCOL_LISTENER")
 			}
-			if got := EnableMultiProtocolListener; got != tt.want {
+			if got := EnableMultiProtocolListener.Get(); got != tt.want {
 				t.Errorf("TerminationDrainDuration() = %v, want %v", got, tt.want)
 			}
 		})

@@ -137,7 +137,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 				}
 			}
 			opts.filterChainOpts = fcOpts
-			if !features.EnableMultiProtocolListener{
+			if !features.EnableMultiProtocolListener.Get() {
 				// breaking out from here means, for a given listener, we attach a filterchain  based on the first server
 				log.Infof("buildGatewayListeners: EnableMultiProtocolListener is not enabled, choosing filter chain based " +
 					"on first server in the listener array")
