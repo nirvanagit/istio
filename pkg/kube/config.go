@@ -71,9 +71,9 @@ func CreateClientset(kubeconfig, context string) (*kubernetes.Clientset, error) 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("[CreateClientset] updating qps and burst to 500/1000")
-	c.QPS = 500
-	c.Burst = 1000
+	fmt.Println("[CreateClientset] updating qps and burst to 1000/10000")
+	c.QPS = 1000
+	c.Burst = 10000
 	return kubernetes.NewForConfig(c)
 }
 
@@ -91,7 +91,7 @@ func createInterface(clusterConfig *clientcmdapi.Config) (kubernetes.Interface, 
 		return nil, err
 	}
 	fmt.Println("[createInterface] updating qps and burst, to 500/1000")
-	restConfig.QPS = 500
-	restConfig.Burst = 1000
+	restConfig.QPS = 1000
+	restConfig.Burst = 10000
 	return kubernetes.NewForConfig(restConfig)
 }
