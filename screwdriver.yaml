@@ -42,4 +42,5 @@ jobs:
       DOCKER_TAG_FLOATING: 1-LATEST
       DOCKERFILE: "Dockerfile.pilot-discovery"
     requires:
-      - ~build-binary
+      #      - ~build-binary
+      - ~commit
