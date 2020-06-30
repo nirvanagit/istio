@@ -86,5 +86,7 @@ func createInterface(clusterConfig *clientcmdapi.Config) (kubernetes.Interface, 
 	if err != nil {
 		return nil, err
 	}
+	restConfig.QPS = 100
+	restConfig.Burst = 100
 	return kubernetes.NewForConfig(restConfig)
 }
