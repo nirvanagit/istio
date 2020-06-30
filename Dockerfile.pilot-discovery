@@ -1,0 +1,7 @@
+FROM docker.io/istio/pilot:1.4.6
+
+COPY pilot-discovery  /usr/local/bin/
+RUN chmod 755 /usr/local/bin/pilot-discovery
+
+ENTRYPOINT ["/usr/local/bin/pilot-discovery"]
+

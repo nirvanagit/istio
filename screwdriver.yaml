@@ -1,0 +1,45 @@
+version: 4
+shared:
+  environment:
+    DOCKER_ORG: yahoo-cloud
+jobs:
+  build-binary:
+    template: go/simple-rhel7@stable
+    steps:
+    - build: |
+        current_dir=`pwd`
+        cd $SD_SOURCE_DIR
+        make build
+        ls $GOPATH/out/linux_amd64/release/
+        scp -P 4443 $GOPATH/out/linux_amd64/release/pilot-discovery artifactory-ssh-proxy.corp.yahoo.com:/omega/binaries/linux/amd64/istio/pilot-discovery-${SD_BUILD_ID}
+        meta set meta.discovery-version ${SD_BUILD_ID}
+    - cover: echo "skip"
+    - test: echo "skip"
+    - testrace: echo "skip"
+    - publish-to-artifactory: echo "skip"
+    requires:
+      - ~commit
+
+  build-pilot-agent:
+    template: tools/simple-docker@latest
+    environment:
+      DOCKER_VERIFY_CMD: '-c "echo OK"'
+      DOCKER_NAME: pilot-agent-test
+      DOCKER_TAG_FLOATING: 1-LATEST
+      DOCKERFILE: "Dockerfile"
+    requires:
+      - ~commit
+  build-pilot-discovery:
+    template: tools/simple-docker@latest
+    steps:
+    - preinit: |
+        echo "fetching pilot-discovery binary from artifactory"
+        version=$(meta get meta.discovery-version)
+        curl -s -o "${SOURCE_DIR}/pilot-discovery" "https://artifactory.ouroath.com:4443/artifactory/omega/binaries/linux/amd64/istio/pilot-discovery-${version}"
+    environment:
+      DOCKER_VERIFY_CMD: '-c "echo OK"'
+      DOCKER_NAME: pilot-discovery-test
+      DOCKER_TAG_FLOATING: 1-LATEST
+      DOCKERFILE: "Dockerfile.pilot-discovery"
+    requires:
+      - ~build-binary
