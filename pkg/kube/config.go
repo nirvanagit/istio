@@ -15,6 +15,7 @@
 package kube
 
 import (
+	"fmt"
 	"os"
 
 	"k8s.io/client-go/kubernetes"
@@ -70,6 +71,7 @@ func CreateClientset(kubeconfig, context string) (*kubernetes.Clientset, error) 
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("[CreateClientset] updating qps and burst")
 	c.QPS = 100
 	c.Burst = 200
 	return kubernetes.NewForConfig(c)
@@ -88,6 +90,7 @@ func createInterface(clusterConfig *clientcmdapi.Config) (kubernetes.Interface, 
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("[createInterface] updating qps and burst")
 	restConfig.QPS = 100
 	restConfig.Burst = 200
 	return kubernetes.NewForConfig(restConfig)
