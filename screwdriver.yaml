@@ -31,7 +31,6 @@ jobs:
       - ~commit
   build-pilot-discovery:
     template: tools/simple-docker@latest
-    steps:
     environment:
       DOCKER_VERIFY_CMD: '-c "echo OK"'
       DOCKER_NAME: pilot-discovery-test
