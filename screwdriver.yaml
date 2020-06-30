@@ -32,10 +32,6 @@ jobs:
   build-pilot-discovery:
     template: tools/simple-docker@latest
     steps:
-    - preinit: |
-        echo "fetching pilot-discovery binary from artifactory"
-        version=$(meta get meta.discovery-version)
-        curl -s -o "${SOURCE_DIR}/pilot-discovery" "https://artifactory.ouroath.com:4443/artifactory/omega/binaries/linux/amd64/istio/pilot-discovery-${version}"
     environment:
       DOCKER_VERIFY_CMD: '-c "echo OK"'
       DOCKER_NAME: pilot-discovery-test
