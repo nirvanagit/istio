@@ -178,6 +178,7 @@ func NewDiscoveryServer(
 			ConfigTypesUpdated: map[string]struct{}{schemas.ServiceEntry.Type: {}},
 		})
 	}
+	// roger02
 	if err := ctl.AppendInstanceHandler(instanceHandler); err != nil {
 		adsLog.Errorf("Append instance handler failed: %v", err)
 		return nil

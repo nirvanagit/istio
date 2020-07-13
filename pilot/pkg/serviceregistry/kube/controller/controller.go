@@ -156,6 +156,7 @@ type cacheHandler struct {
 
 // NewController creates a new Kubernetes controller
 // Created by bootstrap and multicluster (see secretcontroler).
+// [OMEGA] this is called by bootstrap controller
 func NewController(client kubernetes.Interface, options Options) *Controller {
 	log.Infof("Service controller watching namespace %q for services, endpoints, nodes and pods, refresh %s",
 		options.WatchedNamespace, options.ResyncPeriod)
@@ -177,6 +178,7 @@ func NewController(client kubernetes.Interface, options Options) *Controller {
 	out.services = out.createCacheHandler(svcInformer, "Services")
 
 	epInformer := sharedInformers.Core().V1().Endpoints().Informer()
+	// [OMEGA] endpoint informer
 	out.endpoints = out.createEDSCacheHandler(epInformer, "Endpoints")
 
 	nodeInformer := sharedInformers.Core().V1().Nodes().Informer()
@@ -203,6 +205,7 @@ func (c *Controller) notify(obj interface{}, event model.Event) error {
 // Used for Service, Endpoint, Node and Pod.
 // See config/kube for CRD events.
 // See config/ingress for Ingress objects
+// [OMEGA] this does not have handler for EDS
 func (c *Controller) createCacheHandler(informer cache.SharedIndexInformer, otype string) cacheHandler {
 	handler := &kube.ChainHandler{Funcs: []kube.Handler{c.notify}}
 
@@ -230,6 +233,7 @@ func (c *Controller) createCacheHandler(informer cache.SharedIndexInformer, otyp
 	return cacheHandler{informer: informer, handler: handler}
 }
 
+// [OMEGA] EDS Cache Handler
 func (c *Controller) createEDSCacheHandler(informer cache.SharedIndexInformer, otype string) cacheHandler {
 	handler := &kube.ChainHandler{Funcs: []kube.Handler{c.notify}}
 
@@ -247,6 +251,7 @@ func (c *Controller) createEDSCacheHandler(informer cache.SharedIndexInformer, o
 
 				if !reflect.DeepEqual(oldE.Subsets, curE.Subsets) {
 					incrementEvent(otype, "update")
+					// [OMEGA] eds update
 					c.queue.Push(kube.Task{Handler: handler.Apply, Obj: cur, Event: model.EventUpdate})
 				} else {
 					incrementEvent(otype, "updatesame")
@@ -819,6 +824,7 @@ func (c *Controller) GetIstioServiceAccounts(svc *model.Service, ports []int) []
 
 // AppendServiceHandler implements a service catalog operation
 func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
+	// [OMEGA] this is where the handler for service is added
 	c.services.handler.Append(func(obj interface{}, event model.Event) error {
 		svc, ok := obj.(*v1.Service)
 		if !ok {
@@ -878,6 +884,7 @@ func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.
 	if c.endpoints.handler == nil {
 		return nil
 	}
+	// [OMEGA] this is one of the functions the task queue will run.
 	c.endpoints.handler.Append(func(obj interface{}, event model.Event) error {
 		ep, ok := obj.(*v1.Endpoints)
 		if !ok {
@@ -893,6 +900,7 @@ func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.
 			}
 		}
 
+		// roger01
 		c.updateEDS(ep, event)
 
 		return nil
@@ -901,6 +909,8 @@ func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.
 	return nil
 }
 
+// TODO: roger00
+// [OMEGA] this is one of the functions the task queue will run.
 func (c *Controller) updateEDS(ep *v1.Endpoints, event model.Event) {
 	hostname := kube.ServiceHostname(ep.Name, ep.Namespace, c.domainSuffix)
 	mixerEnabled := c.Env != nil && c.Env.Mesh != nil && (c.Env.Mesh.MixerCheckServer != "" || c.Env.Mesh.MixerReportServer != "")

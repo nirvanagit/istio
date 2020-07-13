@@ -920,6 +920,7 @@ func (s *Server) createK8sServiceControllers(serviceControllers *aggregate.Contr
 	clusterID := string(serviceregistry.KubernetesRegistry)
 	log.Infof("Primary Cluster name: %s", clusterID)
 	args.Config.ControllerOptions.ClusterID = clusterID
+	// [OMEGA] starts indexers/informers for pod/services/endpoints
 	kubectl := controller2.NewController(s.kubeClient, args.Config.ControllerOptions)
 	s.kubeRegistry = kubectl
 	serviceControllers.AddRegistry(
@@ -1046,6 +1047,7 @@ func (s *Server) initDiscoveryService(args *PilotArgs) error {
 	}
 	s.mux = discovery.RestContainer.ServeMux
 
+	// roger 03
 	s.EnvoyXdsServer = envoyv2.NewDiscoveryServer(environment,
 		istio_networking.NewConfigGenerator(args.Plugins),
 		s.ServiceController, s.kubeRegistry, s.configController)

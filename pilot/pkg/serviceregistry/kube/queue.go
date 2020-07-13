@@ -95,6 +95,7 @@ func (q *queueImpl) Run(stop <-chan struct{}) {
 		item, q.queue = q.queue[0], q.queue[1:]
 		q.cond.L.Unlock()
 
+		// [OMEGA] this is where the pod/svc/endpoints updates will be processed
 		if err := item.Handler(item.Obj, item.Event); err != nil {
 			log.Infof("Work item handle failed (%v), retry after delay %v", err, q.delay)
 			time.AfterFunc(q.delay, func() {
