@@ -62,44 +62,87 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 	errs := &multierror.Error{}
 	listeners := make([]*xdsapi.Listener, 0, len(mergedGateway.Servers))
 	for portNumber, servers := range mergedGateway.Servers {
-		// on a given port, we can either have plain text HTTP servers or
-		// HTTPS/TLS servers with SNI. We cannot have a mix of http and https server on same port.
-		opts := buildListenerOpts{
-			env:        env,
-			proxy:      node,
-			bind:       actualWildcard,
-			port:       int(portNumber),
-			bindToPort: true,
+		var (
+			fcOpts = make([]*filterChainOpts, 0)
+			pluginParams = make(map[plugin.ListenerProtocol]*plugin.InputParams)
+			// on a given port, we can either have plain text HTTP servers or
+			// HTTPS/TLS servers with SNI. We cannot have a mix of http and https server on same port.
+			opts = buildListenerOpts{
+				env:        env,
+				proxy:      node,
+				bind:       actualWildcard,
+				port:       int(portNumber),
+				bindToPort: true,
+			}
+			si *model.ServiceInstance
+			serviceInstances = make([]*model.ServiceInstance, 0, len(node.ServiceInstances))
+		)
+
+		for _, w := range node.ServiceInstances {
+			if w.Endpoint.Port == int(portNumber) {
+				if si == nil {
+					si = w
+				}
+				serviceInstances = append(serviceInstances, w)
+			}
+		}
+		if len(serviceInstances) != 1 {
+			names := make([]host.Name, 0, len(serviceInstances))
+			for _, s := range serviceInstances {
+				names = append(names, s.Service.Hostname)
+			}
+			log.Warnf("buildGatewayListeners: found %d services on port %d: %v",
+				len(serviceInstances), portNumber, names)
 		}
 
-		p := protocol.Parse(servers[0].Port.Protocol)
-		listenerProtocol := plugin.ModelProtocolToListenerProtocol(node, p, core.TrafficDirection_OUTBOUND)
-		if p.IsHTTP() {
-			// We have a list of HTTP servers on this port. Build a single listener for the server port.
-			// We only need to look at the first server in the list as the merge logic
-			// ensures that all servers are of same type.
-			routeName := mergedGateway.RouteNamesByServer[servers[0]]
-			opts.filterChainOpts = []*filterChainOpts{configgen.createGatewayHTTPFilterChainOpts(node, servers[0], routeName, "")}
-		} else {
-			// build http connection manager with TLS context, for HTTPS servers using simple/mutual TLS
-			// build listener with tcp proxy, with or without TLS context, for TCP servers
-			//   or TLS servers using simple/mutual/passthrough TLS
-			//   or HTTPS servers using passthrough TLS
-			// This process typically yields multiple filter chain matches (with SNI) [if TLS is used]
-			filterChainOpts := make([]*filterChainOpts, 0)
-
-			for _, server := range servers {
+		// loop through servers
+		for _, server := range servers {
+			p := protocol.Parse(server.Port.Protocol)
+			listenerProtocol := plugin.ModelProtocolToListenerProtocol(node, p, core.TrafficDirection_OUTBOUND)
+			if pluginParams[listenerProtocol] == nil {
+				pluginParams[listenerProtocol] = &plugin.InputParams{
+					ListenerProtocol:           listenerProtocol,
+					DeprecatedListenerCategory: networking.EnvoyFilter_DeprecatedListenerMatch_GATEWAY,
+					Env:                        env,
+					Node:                       node,
+					Push:                       push,
+					ServiceInstance:            si,
+					Port: &model.Port{
+						Name:     server.Port.Name,
+						Port:     int(portNumber),
+						Protocol: p,
+					},
+				}
+			}
+			if p.IsHTTP() {
+				// We have a list of HTTP servers on this port. Build a single listener for the server port.
+				// We only need to look at the first server in the list as the merge logic
+				// ensures that all servers are of same type.
+				routeName := mergedGateway.RouteNamesByServer[server]
+				fcOpts = append(fcOpts, configgen.createGatewayHTTPFilterChainOpts(node, server, routeName, ""))
+			} else {
+				// build http connection manager with TLS context, for HTTPS servers using simple/mutual TLS
+				// build listener with tcp proxy, with or without TLS context, for TCP servers
+				//   or TLS servers using simple/mutual/passthrough TLS
+				//   or HTTPS servers using passthrough TLS
+				// This process typically yields multiple filter chain matches (with SNI) [if TLS is used]
 				if gateway.IsTLSServer(server) && gateway.IsHTTPServer(server) {
 					// This is a HTTPS server, where we are doing TLS termination. Build a http connection manager with TLS context
 					routeName := mergedGateway.RouteNamesByServer[server]
-					filterChainOpts = append(filterChainOpts, configgen.createGatewayHTTPFilterChainOpts(node, server, routeName, env.Mesh.SdsUdsPath))
+					fcOpts = append(fcOpts, configgen.createGatewayHTTPFilterChainOpts(node, server, routeName, env.Mesh.SdsUdsPath))
 				} else {
 					// passthrough or tcp, yields multiple filter chains
-					filterChainOpts = append(filterChainOpts, configgen.createGatewayTCPFilterChainOpts(node, env, push,
+					fcOpts = append(fcOpts, configgen.createGatewayTCPFilterChainOpts(node, env, push,
 						server, map[string]bool{mergedGateway.GatewayNameForServer[server]: true})...)
 				}
 			}
-			opts.filterChainOpts = filterChainOpts
+			opts.filterChainOpts = fcOpts
+			if !features.EnableMultiProtocolListener.Get() {
+				// breaking out from here means, for a given listener, we attach a filterchain  based on the first server
+				log.Infof("buildGatewayListeners: EnableMultiProtocolListener is not enabled, choosing filter chain based " +
+					"on first server in the listener array")
+				break
+			}
 		}
 
 		l := buildListener(opts)
@@ -127,46 +170,16 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 		}
 		// end shady logic
 
-		var si *model.ServiceInstance
-		serviceInstances := make([]*model.ServiceInstance, 0, len(node.ServiceInstances))
-		for _, w := range node.ServiceInstances {
-			if w.Endpoint.Port == int(portNumber) {
-				if si == nil {
-					si = w
-				}
-				serviceInstances = append(serviceInstances, w)
-			}
-		}
-		if len(serviceInstances) != 1 {
-			names := make([]host.Name, 0, len(serviceInstances))
-			for _, s := range serviceInstances {
-				names = append(names, s.Service.Hostname)
-			}
-			log.Warnf("buildGatewayListeners: found %d services on port %d: %v",
-				len(serviceInstances), portNumber, names)
-		}
-
-		pluginParams := &plugin.InputParams{
-			ListenerProtocol:           listenerProtocol,
-			DeprecatedListenerCategory: networking.EnvoyFilter_DeprecatedListenerMatch_GATEWAY,
-			Env:                        env,
-			Node:                       node,
-			Push:                       push,
-			ServiceInstance:            si,
-			Port: &model.Port{
-				Name:     servers[0].Port.Name,
-				Port:     int(portNumber),
-				Protocol: p,
-			},
-		}
 		for _, p := range configgen.Plugins {
-			if err := p.OnOutboundListener(pluginParams, mutable); err != nil {
-				log.Warna("buildGatewayListeners: failed to build listener for gateway: ", err.Error())
+			for _, pluginParam := range pluginParams {
+				if err := p.OnOutboundListener(pluginParam, mutable); err != nil {
+					log.Warna("buildGatewayListeners: failed to build listener for gateway: ", err.Error())
+				}
 			}
 		}
 
 		// Filters are serialized one time into an opaque struct once we have the complete list.
-		if err := buildCompleteFilterChain(pluginParams, mutable, opts); err != nil {
+		if err := buildCompleteFilterChain(configgen.getValidPluginParam(pluginParams), mutable, opts); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("gateway omitting listener %q due to: %v", mutable.Listener.Name, err.Error()))
 			continue
 		}
@@ -205,6 +218,14 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(
 
 	builder.gatewayListeners = validatedListeners
 	return builder
+}
+
+// getValidPluginParam returns the first available plugin.InputParam
+func (configgen *ConfigGeneratorImpl) getValidPluginParam(pluginParams map[plugin.ListenerProtocol]*plugin.InputParams) *plugin.InputParams {
+	for _, pluginParam := range pluginParams {
+		return pluginParam
+	}
+	return nil
 }
 
 func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(env *model.Environment, node *model.Proxy, push *model.PushContext,

@@ -22,10 +22,12 @@ import (
 )
 
 func TestMergeGateways(t *testing.T) {
-	configGw1 := makeConfig("foo1", "not-default", "foo.bar.com", "name1", "http", 7, "ingressgateway")
-	configGw2 := makeConfig("foo2", "not-default", "*", "name2", "http", 7, "ingressgateway2")
-	configGw3 := makeConfig("foo3", "not-default", "*", "name3", "http", 8, "ingressgateway")
-	configGw4 := makeConfig("foo4", "not-default-2", "*", "name4", "tcp", 8, "ingressgateway")
+	configGw1 := makeConfig("foo1", "not-default", "foo.bar.com", "name1", "http", 7, "ingressgateway", nil)
+	configGw2 := makeConfig("foo2", "not-default", "*", "name2", "http", 7, "ingressgateway2", nil)
+	configGw3 := makeConfig("foo3", "not-default", "*", "name3", "http", 8, "ingressgateway", nil)
+	configGw4 := makeConfig("foo4", "not-default-2", "*", "name4", "tcp", 8, "ingressgateway", nil)
+	configGw5 := makeConfig("foo1", "not-default", "foo.bar.com", "name5", "http", 4080, "ingressgateway", nil)
+	configGw6 := makeConfig("foo2", "not-default", "*", "name6", "https", 4080, "ingressgateway2", &networking.Server_TLSOptions{Mode: networking.Server_TLSOptions_PASSTHROUGH})
 
 	tests := []struct {
 		name        string
@@ -34,6 +36,13 @@ func TestMergeGateways(t *testing.T) {
 		routesNum   int
 		gatewaysNum int
 	}{
+		{
+			"same-port-http-and-https",
+			[]Config{configGw5, configGw6},
+			1,
+			1,
+			2,
+		},
 		{
 			"single-server-config",
 			[]Config{configGw1},
@@ -66,13 +75,6 @@ func TestMergeGateways(t *testing.T) {
 			"tcp-tcp-server-config",
 			[]Config{configGw4, configGw3},
 			1,
-			0,
-			2,
-		},
-		{
-			"tcp-tcp-server-config",
-			[]Config{configGw3, configGw4}, //order matters
-			1,
 			1,
 			2,
 		},
@@ -94,7 +96,7 @@ func TestMergeGateways(t *testing.T) {
 	}
 }
 
-func makeConfig(name, namespace, host, portName, portProtocol string, portNumber uint32, gw string) Config {
+func makeConfig(name, namespace, host, portName, portProtocol string, portNumber uint32, gw string, tlsOptions *networking.Server_TLSOptions) Config {
 	c := Config{
 		ConfigMeta: ConfigMeta{
 			Name:      name,
@@ -106,6 +108,7 @@ func makeConfig(name, namespace, host, portName, portProtocol string, portNumber
 				{
 					Hosts: []string{host},
 					Port:  &networking.Port{Name: portName, Number: portNumber, Protocol: portProtocol},
+					Tls:   tlsOptions,
 				},
 			},
 		},
