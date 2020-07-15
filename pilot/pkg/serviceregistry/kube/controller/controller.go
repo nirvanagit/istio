@@ -121,11 +121,11 @@ type Options struct {
 	// EndpointMode decides what source to use to get endpoint information
 	EndpointMode EndpointMode
 
-	// QPS indicates the maximum QPS when communicating with kubernetes API
-	QPS float32
+	// Maximum QPS when communicating with kubernetes API
+	KubernetesAPIQPS float32
 
 	// Maximum burst for throttle when communicating with the kubernetes API
-	Burst int
+	KubernetesAPIBurst int
 }
 
 // EndpointMode decides what source to use to get endpoint information

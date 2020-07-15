@@ -306,7 +306,7 @@ var (
 		"Defines the cluster and service registry that this Istiod instance belongs to")
 
 	KubernetesAPIQPS = env.RegisterFloatVar("KUBERNETES_API_QPS", 20.0,
-		"QPS indicates the maximum QPS when communicating with the kubernetes API")
+		"Maximum QPS when communicating with the kubernetes API")
 
 	KubernetesAPIBurst = env.RegisterIntVar("KUBERNETES_API_BURST", 40,
 		"Maximum burst for throttle when communicating with the kubernetes API")
