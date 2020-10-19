@@ -283,6 +283,7 @@ func (s *DiscoveryServer) updateServiceShards(push *model.PushContext) error {
 				}
 
 				// This loses track of grouping (shards)
+				adsLog.Debugf("updating service: %s in namespace: %s", svc.Attributes.Name, svc.Attributes.Namespace)
 				instances, err := registry.InstancesByPort(svc, port.Port, labels.Collection{})
 				if err != nil {
 					return err
@@ -435,7 +436,7 @@ func (s *DiscoveryServer) edsUpdate(clusterID, serviceName string, namespace str
 	if len(istioEndpoints) == 0 {
 		if s.EndpointShardsByService[serviceName][namespace] != nil {
 			s.deleteEndpointShards(clusterID, serviceName, namespace)
-			adsLog.Infof("Incremental push, service %s has no endpoints", serviceName)
+			adsLog.Infof("Incremental push, service %s, in namespace: %s has no endpoints", serviceName, namespace)
 			s.ConfigUpdate(&model.PushRequest{
 				Full:              false,
 				NamespacesUpdated: map[string]struct{}{namespace: {}},

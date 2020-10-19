@@ -265,7 +265,9 @@ func (d *ServiceEntryStore) updateExistingInstances(instances []*model.ServiceIn
 	// First, delete the existing instances to avoid leaking memory.
 	for _, instance := range instances {
 		delete(d.instances[instance.Service.Hostname], instance.Service.Attributes.Namespace)
-		delete(d.instances, instance.Service.Hostname)
+		if len(d.instances[instance.Service.Hostname]) == 0 {
+			delete(d.instances, instance.Service.Hostname)
+		}
 		delete(d.ip2instance, instance.Endpoint.Address)
 	}
 	// Update the indexes with new instances.

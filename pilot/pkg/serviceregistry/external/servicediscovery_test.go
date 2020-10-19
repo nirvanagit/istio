@@ -74,6 +74,73 @@ func initServiceDiscovery() (model.IstioConfigStore, *ServiceEntryStore, func())
 	}
 }
 
+func TestUpdateExistingInstances(t *testing.T) {
+	var (
+		hostname host.Name = "google.com"
+		ns1                = "ns1"
+		ns2                = "ns2"
+
+		tlsConfig = &model.Config{
+			ConfigMeta: model.ConfigMeta{
+				Type:              serviceEntryKind.Kind,
+				Group:             serviceEntryKind.Group,
+				Version:           serviceEntryKind.Version,
+				Name:              "tls-443",
+				Namespace:         ns1,
+				CreationTimestamp: GlobalTime,
+			},
+			Spec: &networking.ServiceEntry{
+				Hosts: []string{string(hostname)},
+				Ports: []*networking.Port{
+					{Number: 443, Name: "tls-443", Protocol: "TLS"},
+				},
+				Location:   networking.ServiceEntry_MESH_EXTERNAL,
+				Resolution: networking.ServiceEntry_DNS,
+			},
+		}
+		httpConfig = &model.Config{
+			ConfigMeta: model.ConfigMeta{
+				Type:              serviceEntryKind.Kind,
+				Group:             serviceEntryKind.Group,
+				Version:           serviceEntryKind.Version,
+				Name:              "https-443",
+				Namespace:         ns2,
+				CreationTimestamp: GlobalTime,
+			},
+			Spec: &networking.ServiceEntry{
+				Hosts: []string{string(hostname)},
+				Ports: []*networking.Port{
+					{Number: 443, Name: "HTTPS-443", Protocol: "HTTPS"},
+				},
+				Location:   networking.ServiceEntry_MESH_EXTERNAL,
+				Resolution: networking.ServiceEntry_DNS,
+			},
+		}
+
+		serviceInstance1 = []*model.ServiceInstance{
+			makeInstance(tlsConfig, string(hostname), 443, tlsConfig.Spec.(*networking.ServiceEntry).Ports[0], nil, true),
+		}
+		serviceInstance2 = []*model.ServiceInstance{
+			makeInstance(httpConfig, string(hostname), 443, httpConfig.Spec.(*networking.ServiceEntry).Ports[0], nil, true),
+		}
+	)
+
+	_, sd, stopFn := initServiceDiscovery()
+	defer stopFn()
+
+	sd.instances[hostname] = map[string][]*model.ServiceInstance{}
+	sd.instances[hostname][tlsConfig.ConfigMeta.Namespace] = serviceInstance1
+	sd.instances[hostname][httpConfig.ConfigMeta.Namespace] = serviceInstance2
+
+	sd.updateExistingInstances(serviceInstance1)
+	if len(sd.instances[hostname]) != 2 {
+		t.Errorf("expected updateExistingInstance to retain 2 service entries for host: %s. got: %d", hostname, len(sd.instances[hostname]))
+	}
+	if len(sd.instances[hostname][httpConfig.ConfigMeta.Namespace]) != 1 {
+		t.Errorf("expected updateExistingInstance to retain service instance for %s in namespace %s, but its not there", hostname, ns2)
+	}
+}
+
 func TestServiceDiscoveryServices(t *testing.T) {
 	store, sd, stopFn := initServiceDiscovery()
 	defer stopFn()
