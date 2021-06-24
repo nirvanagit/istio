@@ -1,0 +1,32 @@
+---
+version: 4
+shared:
+  template: go/rhel7@stable
+  environment:
+    PACKAGE_NAME: pilot-discovery
+    ARTIFACTORY_PROD: 1
+    ARTIFACTORY_REPO: omega_rpms
+    ARTIFACTORY_RELEASE: latest
+    PACKAGE_VERSION: "1.0"
+    RPM_ROOT: "/"
+    ISTIO_RELEASE: "1.7.8"
+  steps:
+    - gofmt: echo make format
+    - vet: echo "skip"
+    - build: echo make DEBUG=1 build
+    - lint: echo make lint
+    - test: echo make test
+    - staticcheck: echo "skip"
+    - test-generated: echo "skip"
+    - testrace: echo make racetest
+    - cover: echo make coverage
+    - rpmspecgen: echo "skip"
+    - package-rpm: echo "skip"
+    - publish-to-artifactory: "${SOURCE_DIR}/build"
+    - wait-for-metadata: echo "skip"
+
+jobs:
+  pr:
+    requires: [~pr]
+  component:
+    requires: [~commit]
