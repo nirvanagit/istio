@@ -1,0 +1,104 @@
+#!/bin/bash
+
+set -e
+set -o pipefail
+
+echo "--publishing docker image to docker registry--"
+images=(pilot)
+build_tag="${ISTIO_RELEASE}_${SD_BUILD_ID}"
+docker_internal_hub="docker.ouroath.com:4443/yahoo-cloud"
+setup() {
+  mkdir -p "${SD_ARTIFACTS_DIR}/logs"
+  echo "installing docker"
+  principal="cd.screwdriver.project.sd${SD_PIPELINE_ID}"
+  sd-cmd exec sd/generate-zts-roletoken@latest -d cd.docker.registry
+  sd-cmd exec docker/install@latest | tee "${SD_ARTIFACTS_DIR}/logs/install_docker.output"
+  docker version
+
+  echo "installing tools required for running istio builds"
+  export PATH="/home/screwdrv/.rbenv/bin:/home/screwdrv/.rbenv/shims:/home/screwdrv/.rbenv/versions/2.7.2/bin:$PATH"
+  curl -fsSL https://github.com/rbenv/rbenv-installer/raw/master/bin/rbenv-installer | bash
+  rbenv install 2.7.2
+  rbenv local 2.7.2
+  gem install --no-document fpm
+}
+
+cleanup() {
+  make clean
+}
+
+build_images() {
+  for image in "${images[@]}"; do
+    make "docker.$image"
+  done;
+}
+
+push_images() {
+  for image in "${images[@]}"; do
+    image_tag=$(docker images | grep "$image" | awk '{print $3}')
+    echo "check if there are more than 1 tag for $image"
+    count=$(echo "$image_tag" | wc -l | awk '{print $1}')
+    if [ "$count" -gt 1 ]; then
+      echo "found $count tags for $image in local docker cache. expected 1, exiting..."
+      exit 1
+    fi
+    echo "tagging image $image. this tag will be used for publishing the image to docker.ouroath.com"
+    full_tag="${docker_internal_hub}/${image}:${build_tag}"
+    docker tag "${image_tag}" "${full_tag}"
+    echo "principal ${principal}"
+    docker images "${full_tag}"
+    if [ ! -e "/tmp/roletoken" ]; then
+      docker login -u "$principal" --password-stdin docker.ouroath.com:4443 < /sd/tokens/ntoken
+    else
+      docker login -u "$principal" --password-stdin docker.ouroath.com:4443 < /tmp/roletoken
+    fi
+    echo "pushing ${full_tag} to ${docker_internal_hub}"
+    docker push "docker.ouroath.com:4443/yahoo-cloud/pilot:${build_tag}"
+  done;
+}
+
+sign() {
+  # this step uploads the cryptographic hash of the image to a trusted, secured signing server
+  # and is an important step for validating that images have not been tampered with.
+  # unsigned images will not be able to be validated and can be EXPLOITED!!!
+  if [ -n "$SD_PULL_REQUEST" ]; then
+    echo Skipping sign in PR build
+  else
+    export FULL_IMAGE=docker.ouroath.com:4443/yahoo-cloud/pilot:${build_tag}
+    echo $FULL_IMAGE
+
+    # first use docker inspect to find the sha for the image
+    # output will look like:
+    # [myimage@sha256:abcd docker.ouroath.com:4443/myimage@sha256abcd]
+    docker inspect --format={{.RepoDigests}} $FULL_IMAGE | tee $SD_ARTIFACTS_DIR/logs/inspect.output
+
+    # fiddle around with the output to get just the sha
+    # output will look like:
+    # sha256:abcd
+    export IMAGE_SHA=`cat $SD_ARTIFACTS_DIR/logs/inspect.output | awk '{for(i=1;i<=NF;i++) { print $i }}' | awk 'match($0, /@.*\]/) {print substr($0, RSTART+1, RLENGTH-2) }'`
+    echo $IMAGE_SHA
+
+    # besides SSHCA, basic auth is also needed to ensure you have permission to sign a particular image
+    if [ ! -e "/tmp/roletoken" ]; then
+      export BASIC_AUTH=`echo $principal:$(cat /sd/tokens/ntoken) | base64 --wrap=0` # disable wrapping or else newlines get inserted
+    else
+      export BASIC_AUTH=`echo $principal:$(cat /tmp/roletoken) | base64 --wrap=0` # disable wrapping or else newlines get inserted
+    fi
+    # don't echo $BASIC_AUTH...
+
+    # write a known hosts file with the public key of the signing server we will ssh to
+    echo "[docker.sign.ops.yahoo.com]:222,[67.195.117.7]:222,[98.139.193.48]:222 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCpUzzb2wo6smYoMFneBDx1KlheUWlbZqM+aSLvzQA4OUookDm+dvy1IoQcqUNC7Xcl5Cbj9qSBrGRsiNM61LbnEgXgU2VRfC5ofUoM96VBPvETrcgYq/Ny8/leRkXgbFEb1h14GgfWDnkg787KLU5/8uy1n1RxS/hiReWI8z8nINEdQd337MQoynFqcHBE1CcfEESyK78+QV4+hHQLqnOisHayZOu3j1rxLUuWVw1lzGKxcWTFsik38BQNs8BsFYsaJM7KhMfil3YNUt/AHHn6nWn2EbXg4e9q16T0hW6xzUNqhD3aQjfaO2xucy3JpmD6/yQUpXnUQ/fz3tfulc21" > /tmp/known_hosts
+
+    # finally, use secured ssh to upload the sha to the signing server
+    whoami
+    ssh -o ConnectTimeout=10 -o UserKnownHostsFile=/tmp/known_hosts docker.sign.ops.yahoo.com -p 222 " --type docker --name $FULL_IMAGE --sha $IMAGE_SHA --basic-auth $BASIC_AUTH"
+  fi
+}
+
+setup
+cleanup
+build_images
+if [ -z "${SD_PULL_REQUEST}" ]; then
+  push_images
+  sign
+fi
